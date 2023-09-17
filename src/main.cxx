@@ -11,6 +11,11 @@
 #include <vtkVolumeProperty.h>
 #include <vtkSmartVolumeMapper.h>
 #include <vtkOpenGLGPUVolumeRayCastMapper.h>
+#include <vtkImageReslice.h>
+#include <vtkImageMapper3D.h>
+#include <vtkImageActor.h>
+#include <vtkLookupTable.h>
+#include <vtkImageMapToColors.h>
 
 #include <QApplication>
 #include <QDockWidget>
@@ -53,7 +58,6 @@ int main(int argc, char* argv[])
     mainWindow.addDockWidget(Qt::LeftDockWidgetArea, &controlDock);
 
     QLabel controlDockTitle("");
-    controlDockTitle.setMargin(20);
     controlDock.setTitleBarWidget(&controlDockTitle);
 
     QPointer<QVBoxLayout> dockLayout = new QVBoxLayout();
@@ -71,12 +75,11 @@ int main(int argc, char* argv[])
     dockLayout->addWidget(&slider);
 
     slider.setMinimum(0);
-    slider.setMaximum(100);
-
-    slider.setValue(50);
+    slider.setMaximum(147);
+    slider.setValue(0);
 
     // File headers
-    string input = "C:\\Users\\Grancu\\Desktop\\kulki\\mrct\\CT.rdata";
+    string input = "C:\\Users\\Grancu\\Desktop\\kulki\\mrct\\CT.rdata"; ///////////////change later
     ifstream stream(input + ".header");
     string line;
 
@@ -109,31 +112,45 @@ int main(int argc, char* argv[])
     vtkNew<vtkVolumeProperty> volumeProperty;
     volumeProperty->SetInterpolationTypeToLinear();
 
-    //COLOR magia: https://examples.vtk.org/site/Cxx/VolumeRendering/FixedPointVolumeRayCastMapperCT/
-    vtkNew<vtkColorTransferFunction> colorFun;
-    vtkNew<vtkPiecewiseFunction> opacityFun;
-    double opacityLevel = 4096;
-    double opacityWindow = 2048;
-
-    volumeProperty->SetColor(colorFun);
-    volumeProperty->SetScalarOpacity(opacityFun);
-    colorFun->AddRGBSegment(opacityLevel - 0.5 * opacityWindow, 0.0, 0.0, 0.0, opacityLevel + 0.5 * opacityWindow, 1.0, 1.0, 1.0);
-    opacityFun->AddSegment(opacityLevel - 0.5 * opacityWindow, 0.0, opacityLevel + 0.5 * opacityWindow, 1.0);
-    volumeMapper->SetBlendModeToComposite();
-    volumeProperty->ShadeOn();
-
-
     vtkNew<vtkVolume> volume;
     volume->SetMapper(volumeMapper);
     volume->SetProperty(volumeProperty);
 
+    vtkNew<vtkImageReslice> reslice;
+    reslice->SetInputData(imageData);
+    reslice->SetOutputDimensionality(2);
+    reslice->SetResliceAxesDirectionCosines(1, 0, 0, 0, 1, 0, 0, 0, 1);
+    reslice->SetInterpolationModeToLinear();
+
+    reslice->SetResliceAxesOrigin(0, 0, 1);
+
+    // Create a vtkLookupTable for color mapping
+    vtkNew<vtkLookupTable> colorTable;
+    colorTable->SetTableRange(0, 8000); // Adjust the range as needed
+    colorTable->SetHueRange(0.0, 0.0);   // Adjust hue for desired color
+    colorTable->SetSaturationRange(0, 0);
+    colorTable->SetValueRange(0.0, 1.0);
+    colorTable->Build();
+
+    vtkNew<vtkImageMapToColors> colorMapper;
+    colorMapper->SetInputConnection(reslice->GetOutputPort());
+    colorMapper->SetLookupTable(colorTable.Get());
+
+    // Create a vtkImageActor and set it up to display the slice with colors
+    vtkNew<vtkImageActor> imageActor;
+    imageActor->GetMapper()->SetInputConnection(colorMapper->GetOutputPort());
+
     vtkNew<vtkRenderer> renderer;
     window->AddRenderer(renderer);
-    renderer->AddVolume(volume);
+    renderer->AddActor(imageActor);
 
     mainWindow.show();
     renderer->Render();
 
+    QObject::connect(&slider, &QSlider::valueChanged, [&](int value) {
+        reslice->SetResliceAxesOrigin(0, 0, value);
+        renderer->GetRenderWindow()->Render();
+        });
 
     return app.exec();
 }
